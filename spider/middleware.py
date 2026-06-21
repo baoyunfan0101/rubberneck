@@ -7,6 +7,7 @@ from ..model import Request, Response
 
 
 class SpiderMiddleware:
+    order = 0  # execution order among same-type middlewares
 
     def open(self, engine: object) -> None:
         pass
