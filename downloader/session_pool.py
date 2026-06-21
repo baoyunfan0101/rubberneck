@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from threading import Condition
+from queue import Queue
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -14,11 +14,11 @@ from .registry import DOWNLOADERS
 @DOWNLOADERS.register('session_pool')
 class SessionPoolDownloader:
     def __init__(
-            self,
-            pool_size: int = 8,
-            max_host_pools: int = 10,
-            timeout: float | tuple[float, float] = (5.0, 30.0),
-            session_factory: Callable[[], requests.Session] | None = None,
+        self,
+        pool_size: int = 8,
+        max_host_pools: int = 10,
+        timeout: float | tuple[float, float] = (5.0, 30.0),
+        session_factory: Callable[[], requests.Session] | None = None,
     ) -> None:
         if pool_size < 1:
             raise ValueError('pool_size must be at least 1')
@@ -29,14 +29,15 @@ class SessionPoolDownloader:
             self._new_session(max_host_pools, session_factory)
             for _ in range(pool_size)
         ]  # session pool
-        self._availability = Condition()  # session assignment lock
-        self._busy = [False for _ in self._sessions]  # session busy states
-        self._session_ids: dict[str, int] = {}  # session_id -> session index
+        self._available: Queue[requests.Session] = Queue(maxsize=pool_size)  # idle sessions
+        for session in self._sessions:
+            self._available.put(session)
 
     def fetch(self, request: Request) -> Response:
-        index = self._acquire_session(request)
+        session = self._available.get()  # block until a session is available
         try:
-            response = self._sessions[index].request(
+            self._clear_cookies(session)
+            response = session.request(
                 method=request.method,
                 url=request.url,
                 headers=dict(request.headers),
@@ -50,52 +51,28 @@ class SessionPoolDownloader:
                     body=response.content,
                     headers=dict(response.headers),
                     request=request,
+                    cookies=tuple(response.cookies),
                 )
             finally:
                 response.close()
         finally:
-            self._release_session(index)
+            self._clear_cookies(session)
+            self._available.put(session)
 
     def close(self) -> None:
         for session in self._sessions:
             session.close()
 
-    def _acquire_session(self, request: Request) -> int:
-        session_id = request.meta.get('session_id')
-        with self._availability:
-            if session_id is not None:  # preserve session affinity when possible
-                key = str(session_id)
-                if key not in self._session_ids:  # assign a session to a new session_id
-                    self._session_ids[key] = self._wait_for_idle_session(set(self._session_ids.values()))
-                index = self._session_ids[key]
-                while self._busy[index]:  # wait until the assigned session becomes idle
-                    self._availability.wait()
-            else:
-                index = self._wait_for_idle_session()  # release the lock, wait until notified, then reacquire the lock
-            self._busy[index] = True
-            return index
-
-    def _release_session(self, index: int) -> None:
-        with self._availability:
-            self._busy[index] = False
-            self._availability.notify_all()  # wake up threads waiting for an idle session
-
-    def _wait_for_idle_session(self, assigned: set[int] | None = None) -> int:
-        # assigned: session indexes already bound to session_ids
-        while True:
-            for index, busy in enumerate(self._busy):  # prefer a session that is idle and unbound
-                if not busy and (assigned is None or index not in assigned):
-                    return index
-            if assigned:  # fall back to any idle session
-                for index, busy in enumerate(self._busy):
-                    if not busy:
-                        return index
-            self._availability.wait()  # release the lock, wait until notified, then reacquire the lock
+    @staticmethod
+    def _clear_cookies(session: requests.Session) -> None:
+        cookies = getattr(session, 'cookies', None)
+        if cookies is not None:
+            cookies.clear()
 
     @staticmethod
     def _new_session(
-            max_host_pools: int,
-            session_factory: Callable[[], requests.Session] | None,
+        max_host_pools: int,
+        session_factory: Callable[[], requests.Session] | None,
     ) -> requests.Session:
         session = session_factory() if session_factory is not None else requests.Session()
         adapter = HTTPAdapter(
