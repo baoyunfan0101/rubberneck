@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Generic, TypeVar
 
+from .spec import ComponentSpec
+
 T = TypeVar("T")
 
 
@@ -32,6 +34,9 @@ class ComponentRegistry(Generic[T]):
             available = ", ".join(sorted(self._components)) or "none"
             raise KeyError(f"unknown {self.category} component: {name}; available: {available}") from error
         return component(**options)
+
+    def create_spec(self, spec: ComponentSpec) -> T:
+        return self.create(spec.name, **dict(spec.options))
 
     def names(self) -> tuple[str, ...]:
         return tuple(sorted(self._components))
