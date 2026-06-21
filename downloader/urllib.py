@@ -43,6 +43,9 @@ class UrllibDownloader:
                 cookies=self._cookies(raw_response),
             )
 
+    def close(self) -> None:
+        pass
+
     @staticmethod
     def _cookies(raw_response) -> tuple:
         cookies = []

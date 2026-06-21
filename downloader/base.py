@@ -8,3 +8,6 @@ from ..model import Request, Response
 class Downloader(Protocol):
     def fetch(self, request: Request) -> Response:
         ...
+
+    def close(self) -> None:
+        ...
