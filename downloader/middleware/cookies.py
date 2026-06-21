@@ -5,13 +5,14 @@ from collections.abc import Hashable
 from ..cookie_store import CookieJarRegistry
 from ...model import Request, Response
 from ...registry import ComponentSpec
+from .base import DownloaderMiddleware
 from .registry import DOWNLOADER_MIDDLEWARES
 
 
 # decorator = DOWNLOADER_MIDDLEWARES.register('cookies');
 @DOWNLOADER_MIDDLEWARES.register('cookies')
-class CookiesMiddleware:
-    order = 700
+class CookiesMiddleware(DownloaderMiddleware):
+    order = 700  # execution order among same-type middlewares
 
     def __init__(
         self,
