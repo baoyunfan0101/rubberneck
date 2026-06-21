@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Mapping
 
-from ..model import Response
+from ..model import Request, Response
 
 
 class SpiderMiddleware:
@@ -14,8 +15,10 @@ class SpiderMiddleware:
         return response
 
     def process_output(
-        self, response: Response, output: Iterable[object]
-    ) -> Iterable[object]:
+        self,
+        response: Response,
+        output: Iterable[Request | Mapping[str, object]]
+    ) -> Iterable[Request | Mapping[str, object]]:
         return output
 
     def close(self, engine: object) -> None:
