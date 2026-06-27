@@ -4,7 +4,7 @@ import heapq
 import itertools
 from threading import Lock
 
-from ..model import CrawlTask, Request
+from ..model import Request
 from .registry import SCHEDULERS
 
 
@@ -12,13 +12,12 @@ from .registry import SCHEDULERS
 @SCHEDULERS.register('memory')
 class MemoryScheduler:
     def __init__(self) -> None:
-        self._queue: list[tuple[int, int, CrawlTask]] = []  # min_heap: (priority, sequence number, crawl task)
+        self._queue: list[tuple[int, int, Request]] = []  # min_heap: (priority, sequence number, request)
         self._seen: set[tuple[str, str, bytes | None]] = set()  # seen: fingerprint
-        self._leased: dict[int, CrawlTask] = {}  # leased: crawl task
-        self._done: set[int] = set()  # done: task id
-        self._failed: dict[int, str] = {}  # failed: {task id -> error}
-        self._task_ids = itertools.count(1)  # task id
-        self._sequence = itertools.count()  # task sequence number
+        self._leased: dict[tuple[str, str, bytes | None], Request] = {}  # leased: {fingerprint -> request}
+        self._done: set[tuple[str, str, bytes | None]] = set()  # done: fingerprint
+        self._failed: dict[tuple[str, str, bytes | None], str] = {}  # failed: {fingerprint -> error}
+        self._sequence = itertools.count()  # request sequence number
         self._lock = Lock()
 
     def open(self) -> None:
@@ -27,43 +26,33 @@ class MemoryScheduler:
     def enqueue(self, request: Request) -> bool:
         with self._lock:
             fingerprint = request.fingerprint()  # fingerprint: method.upper() + url + body
-            if not request.dont_filter and fingerprint in self._seen:  # skip duplicate requests unless dont_filter
+            if fingerprint in self._seen:  # skip duplicate requests
                 return False
-            if not request.dont_filter:
-                self._seen.add(fingerprint)
-            task = CrawlTask(
-                id=next(self._task_ids),
-                request=request,
-            )
-            self._push(task)
+            self._seen.add(fingerprint)
+            self._push(request)
             return True
 
-    def dequeue(self) -> CrawlTask | None:
+    def dequeue(self) -> Request | None:
         with self._lock:
             if not self._queue:
                 return None
-            task = heapq.heappop(self._queue)[2]
-            self._leased[task.id] = task
-            return task
+            request = heapq.heappop(self._queue)[2]
+            self._leased[request.fingerprint()] = request
+            return request
 
-    def mark_done(self, task: CrawlTask) -> None:
+    def mark_done(self, request: Request) -> None:
         with self._lock:
-            self._require_lease(task)
-            self._leased.pop(task.id)
-            self._done.add(task.id)
+            fingerprint = request.fingerprint()
+            self._require_lease(request)
+            self._leased.pop(fingerprint)
+            self._done.add(fingerprint)
 
-    def mark_failed(self, task: CrawlTask, error: Exception) -> None:
+    def mark_failed(self, request: Request, error: Exception) -> None:
         with self._lock:
-            self._require_lease(task)
-            self._leased.pop(task.id)
-            self._failed[task.id] = str(error)
-
-    def requeue(self, task: CrawlTask, error: Exception) -> None:
-        with self._lock:
-            self._require_lease(task)
-            self._leased.pop(task.id)
-            retry = CrawlTask(task.id, task.request, task.attempt + 1)
-            self._push(retry)
+            fingerprint = request.fingerprint()
+            self._require_lease(request)
+            self._leased.pop(fingerprint)
+            self._failed[fingerprint] = str(error)
 
     def has_pending(self) -> bool:
         with self._lock:
@@ -80,14 +69,15 @@ class MemoryScheduler:
     def close(self) -> None:
         pass
 
-    def _push(self, task: CrawlTask) -> None:
+    def _push(self, request: Request) -> None:
         heapq.heappush(
             self._queue,
-            (-task.request.priority, next(self._sequence), task),
+            (-request.priority, next(self._sequence), request),
         )  # push into the min-heap by priority, then sequence number
 
-    def _require_lease(self, task: CrawlTask) -> None:
-        if self._leased.get(task.id) != task:
-            raise RuntimeError(f'task is not leased: {task.id}')
+    def _require_lease(self, request: Request) -> None:
+        fingerprint = request.fingerprint()
+        if self._leased.get(fingerprint) != request:
+            raise RuntimeError(f'request is not leased: {request.url}')
 
 # MemoryScheduler = decorator(MemoryScheduler);

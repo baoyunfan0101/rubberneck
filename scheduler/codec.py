@@ -28,7 +28,6 @@ class JsonRequestCodec:
                     'body': base64.b64encode(request.body).decode() if request.body else None,
                     'meta': request.meta,
                     'priority': request.priority,
-                    'dont_filter': request.dont_filter,
                 },
                 separators=(',', ':'),
             )
@@ -44,5 +43,4 @@ class JsonRequestCodec:
             body=base64.b64decode(data['body']) if data['body'] is not None else None,
             meta=data['meta'],
             priority=data['priority'],
-            dont_filter=data['dont_filter'],
         )

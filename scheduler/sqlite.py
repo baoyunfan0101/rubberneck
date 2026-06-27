@@ -5,7 +5,7 @@ from pathlib import Path
 import sqlite3
 from threading import RLock
 
-from ..model import CrawlTask, Request
+from ..model import Request
 from .codec import JsonRequestCodec, RequestCodec
 from .registry import SCHEDULERS
 
@@ -38,7 +38,7 @@ class SQLiteScheduler:
         self._conn.execute('PRAGMA synchronous=NORMAL')  # NORMAL: reduce disk synchronization frequency
         self._conn.execute('PRAGMA busy_timeout=30000')  # wait 30000ms when db is locked
         if reset:
-            self._conn.execute('DROP TABLE IF EXISTS crawl_tasks')
+            self._conn.execute('DROP TABLE IF EXISTS request_queue')
         self._init()
         self._recover()
 
@@ -47,28 +47,28 @@ class SQLiteScheduler:
 
     def enqueue(self, request: Request) -> bool:
         payload = self.codec.encode(request)
-        fingerprint = None if request.dont_filter else self._fingerprint(request)  # None does not violate UNIQUE
+        fingerprint = self._fingerprint(request)
         with self._lock:  # lock the connection
             cursor = self._conn.execute(
                 '''
-                INSERT OR IGNORE INTO crawl_tasks
-                    (fingerprint, payload, priority, status, attempt)
-                VALUES (?, ?, ?, ?, 0)
+                INSERT OR IGNORE INTO request_queue
+                    (fingerprint, payload, priority, status)
+                VALUES (?, ?, ?, ?)
                 ''',
                 (fingerprint, payload, request.priority, PENDING),
             )
             return cursor.rowcount == 1
 
-    def dequeue(self) -> CrawlTask | None:
+    def dequeue(self) -> Request | None:
         with self._lock:
             self._conn.execute('BEGIN IMMEDIATE')  # start a transaction and acquire a write lock
             try:
                 row = self._conn.execute(
                     '''
-                    SELECT id, payload, attempt
-                    FROM crawl_tasks
+                    SELECT fingerprint, payload
+                    FROM request_queue
                     WHERE status = ?
-                    ORDER BY priority DESC, id ASC
+                    ORDER BY priority DESC, sequence ASC
                     LIMIT 1
                     ''',
                     (PENDING,),
@@ -78,41 +78,23 @@ class SQLiteScheduler:
                     return None
                 self._conn.execute(
                     '''
-                    UPDATE crawl_tasks
+                    UPDATE request_queue
                     SET status = ?, error = NULL
-                    WHERE id = ?
+                    WHERE fingerprint = ?
                     ''',
                     (LEASED, row[0]),
                 )
                 self._conn.commit()
-                task = CrawlTask(
-                    id=row[0],
-                    request=self.codec.decode(row[1]),
-                    attempt=row[2],
-                )
-                return task
+                return self.codec.decode(row[1])
             except Exception:
                 self._conn.rollback()  # roll back the transaction on error
                 raise  # re-raise the original exception
 
-    def mark_done(self, task: CrawlTask) -> None:
-        self._transition(task, DONE, None)
+    def mark_done(self, request: Request) -> None:
+        self._transition(request, DONE, None)
 
-    def mark_failed(self, task: CrawlTask, error: Exception) -> None:
-        self._transition(task, FAILED, str(error))
-
-    def requeue(self, task: CrawlTask, error: Exception) -> None:
-        with self._lock:
-            cursor = self._conn.execute(
-                '''
-                UPDATE crawl_tasks
-                SET status = ?, attempt = attempt + 1, error = ?
-                WHERE id = ? AND status = ?
-                ''',
-                (PENDING, str(error), task.id, LEASED),
-            )
-            if cursor.rowcount != 1:
-                raise RuntimeError(f'task is not leased: {task.id}')
+    def mark_failed(self, request: Request, error: Exception) -> None:
+        self._transition(request, FAILED, str(error))
 
     def has_pending(self) -> bool:
         return self.pending_count() > 0
@@ -130,47 +112,46 @@ class SQLiteScheduler:
     def _init(self) -> None:
         self._conn.execute(
             '''
-            CREATE TABLE IF NOT EXISTS crawl_tasks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                fingerprint TEXT UNIQUE,
+            CREATE TABLE IF NOT EXISTS request_queue (
+                sequence INTEGER PRIMARY KEY,
+                fingerprint TEXT UNIQUE NOT NULL,
                 payload TEXT NOT NULL,
                 priority INTEGER NOT NULL,
                 status TEXT NOT NULL,
-                attempt INTEGER NOT NULL DEFAULT 0,
                 error TEXT
             )
             '''
-        )  # non-null fingerprint must be unique
+        )  # fingerprint must be unique
         self._conn.execute(
             '''
-            CREATE INDEX IF NOT EXISTS idx_crawl_tasks_status_priority
-            ON crawl_tasks(status, priority DESC, id ASC)
+            CREATE INDEX IF NOT EXISTS idx_request_queue_status_priority
+            ON request_queue(status, priority DESC, sequence ASC)
             '''
         )
 
     def _recover(self) -> None:
         self._conn.execute(
-            'UPDATE crawl_tasks SET status = ? WHERE status = ?',
+            'UPDATE request_queue SET status = ? WHERE status = ?',
             (PENDING, LEASED),
         )
 
-    def _transition(self, task: CrawlTask, status: str, error: str | None) -> None:
+    def _transition(self, request: Request, status: str, error: str | None) -> None:
         with self._lock:
             cursor = self._conn.execute(
                 '''
-                UPDATE crawl_tasks
+                UPDATE request_queue
                 SET status = ?, error = ?
-                WHERE id = ? AND status = ?
+                WHERE fingerprint = ? AND status = ?
                 ''',
-                (status, error, task.id, LEASED),
+                (status, error, self._fingerprint(request), LEASED),
             )
             if cursor.rowcount != 1:
-                raise RuntimeError(f'task is not leased: {task.id}')
+                raise RuntimeError(f'request is not leased: {request.url}')
 
     def _count(self, status: str) -> int:
         with self._lock:
             row = self._conn.execute(
-                'SELECT COUNT(*) FROM crawl_tasks WHERE status = ?',
+                'SELECT COUNT(*) FROM request_queue WHERE status = ?',
                 (status,),
             ).fetchone()
             return row[0]
