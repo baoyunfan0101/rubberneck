@@ -1,4 +1,4 @@
-from .base import Downloader
+from .base import Downloader, DownloaderResult, DownloaderValue
 from .cookie_store import (
     COOKIE_STORES,
     CookieJarRegistry,
@@ -12,6 +12,8 @@ from .urllib import UrllibDownloader
 
 __all__ = [
     'Downloader',
+    'DownloaderResult',
+    'DownloaderValue',
     'DownloaderMiddleware',
     'CookieJarRegistry',
     'CookieStore',

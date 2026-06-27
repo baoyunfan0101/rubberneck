@@ -33,7 +33,10 @@ class SessionPoolDownloader:
         for session in self._sessions:
             self._available.put(session)
 
-    def fetch(self, request: Request) -> Response:
+    def open(self) -> None:
+        pass
+
+    def fetch(self, request: Request) -> tuple[Response, ...]:
         session = self._available.get()  # block until a session is available
         try:
             self._clear_cookies(session)
@@ -45,14 +48,14 @@ class SessionPoolDownloader:
                 timeout=self.timeout,
             )
             try:
-                return Response(
+                return (Response(
                     url=response.url,
                     status=response.status_code,
                     body=response.content,
                     headers=dict(response.headers),
                     request=request,
                     cookies=tuple(response.cookies),
-                )
+                ),)
             finally:
                 response.close()
         finally:

@@ -6,19 +6,22 @@ from ..model import CrawlTask, Request
 
 
 class Scheduler(Protocol):
+    def open(self) -> None:
+        ...
+
     def enqueue(self, request: Request) -> bool:
         ...
 
-    def claim(self) -> CrawlTask | None:
+    def dequeue(self) -> CrawlTask | None:
         ...
 
-    def ack(self, task: CrawlTask) -> None:
+    def mark_done(self, task: CrawlTask) -> None:
         ...
 
-    def fail(self, task: CrawlTask, error: Exception) -> None:
+    def mark_failed(self, task: CrawlTask, error: Exception) -> None:
         ...
 
-    def retry(self, task: CrawlTask, error: Exception) -> None:
+    def requeue(self, task: CrawlTask, error: Exception) -> None:
         ...
 
     def has_pending(self) -> bool:

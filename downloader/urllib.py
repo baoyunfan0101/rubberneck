@@ -18,7 +18,10 @@ class UrllibDownloader:
     def __init__(self, timeout: float = 30.0) -> None:
         self.timeout = timeout  # request timeout in seconds
 
-    def fetch(self, request: Request) -> Response:
+    def open(self) -> None:
+        pass
+
+    def fetch(self, request: Request) -> tuple[Response, ...]:
         raw_request = UrlRequest(
             request.url,
             data=request.body,
@@ -30,7 +33,7 @@ class UrllibDownloader:
         except HTTPError as e:
             raw_response = e
         with raw_response:
-            return Response(
+            return (Response(
                 url=raw_response.url,
                 status=(
                     raw_response.status
@@ -41,7 +44,7 @@ class UrllibDownloader:
                 headers=dict(raw_response.headers.items()),
                 request=request,
                 cookies=self._cookies(raw_response),
-            )
+            ),)
 
     def close(self) -> None:
         pass

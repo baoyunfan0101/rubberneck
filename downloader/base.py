@@ -1,12 +1,20 @@
 from __future__ import annotations
 
-from typing import Protocol
+from collections.abc import Iterable
+from typing import Protocol, TypeAlias
 
-from ..model import Request, Response
+from ..logger import LoggerEvent
+from ..model import Failure, Request, Response
+
+DownloaderValue: TypeAlias = Request | Response | Failure | LoggerEvent
+DownloaderResult: TypeAlias = Iterable[DownloaderValue]
 
 
 class Downloader(Protocol):
-    def fetch(self, request: Request) -> Response:
+    def open(self) -> None:
+        ...
+
+    def fetch(self, request: Request) -> DownloaderResult:
         ...
 
     def close(self) -> None:

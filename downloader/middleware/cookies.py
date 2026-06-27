@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Hashable
 
 from ..cookie_store import CookieJarRegistry
+from ..base import DownloaderResult
 from ...model import Request, Response
 from ...registry import ComponentSpec
 from .base import DownloaderMiddleware
@@ -24,13 +25,21 @@ class CookiesMiddleware(DownloaderMiddleware):
         self.registry = registry or CookieJarRegistry(max_jars=max_jars, store=store)
         self.key = key
 
-    def process_request(self, request: Request) -> Request:
+    def process_input(self, request: Request) -> Request:
         self.registry.add_cookie_header(self._key(request), request)
         return request
 
-    def process_response(self, request: Request, response: Response) -> Response:
-        self.registry.merge(self._key(request), response)
-        return response
+    def process_output(
+        self,
+        request: Request,
+        output: DownloaderResult,
+    ) -> DownloaderResult:
+        values = []
+        for value in output:
+            if isinstance(value, Response):
+                self.registry.merge(self._key(request), value)
+            values.append(value)
+        return values
 
     def _key(self, request: Request) -> Hashable:
         value = request.meta.get(self.key, self.registry.default_jar)

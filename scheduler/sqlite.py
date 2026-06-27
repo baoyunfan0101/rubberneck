@@ -42,6 +42,9 @@ class SQLiteScheduler:
         self._init()
         self._recover()
 
+    def open(self) -> None:
+        pass
+
     def enqueue(self, request: Request) -> bool:
         payload = self.codec.encode(request)
         fingerprint = None if request.dont_filter else self._fingerprint(request)  # None does not violate UNIQUE
@@ -56,7 +59,7 @@ class SQLiteScheduler:
             )
             return cursor.rowcount == 1
 
-    def claim(self) -> CrawlTask | None:
+    def dequeue(self) -> CrawlTask | None:
         with self._lock:
             self._conn.execute('BEGIN IMMEDIATE')  # start a transaction and acquire a write lock
             try:
@@ -82,22 +85,23 @@ class SQLiteScheduler:
                     (LEASED, row[0]),
                 )
                 self._conn.commit()
-                return CrawlTask(
+                task = CrawlTask(
                     id=row[0],
                     request=self.codec.decode(row[1]),
                     attempt=row[2],
                 )
+                return task
             except Exception:
                 self._conn.rollback()  # roll back the transaction on error
                 raise  # re-raise the original exception
 
-    def ack(self, task: CrawlTask) -> None:
+    def mark_done(self, task: CrawlTask) -> None:
         self._transition(task, DONE, None)
 
-    def fail(self, task: CrawlTask, error: Exception) -> None:
+    def mark_failed(self, task: CrawlTask, error: Exception) -> None:
         self._transition(task, FAILED, str(error))
 
-    def retry(self, task: CrawlTask, error: Exception) -> None:
+    def requeue(self, task: CrawlTask, error: Exception) -> None:
         with self._lock:
             cursor = self._conn.execute(
                 '''

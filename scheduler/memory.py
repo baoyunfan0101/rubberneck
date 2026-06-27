@@ -21,6 +21,9 @@ class MemoryScheduler:
         self._sequence = itertools.count()  # task sequence number
         self._lock = Lock()
 
+    def open(self) -> None:
+        pass
+
     def enqueue(self, request: Request) -> bool:
         with self._lock:
             fingerprint = request.fingerprint()  # fingerprint: method.upper() + url + body
@@ -35,7 +38,7 @@ class MemoryScheduler:
             self._push(task)
             return True
 
-    def claim(self) -> CrawlTask | None:
+    def dequeue(self) -> CrawlTask | None:
         with self._lock:
             if not self._queue:
                 return None
@@ -43,23 +46,24 @@ class MemoryScheduler:
             self._leased[task.id] = task
             return task
 
-    def ack(self, task: CrawlTask) -> None:
+    def mark_done(self, task: CrawlTask) -> None:
         with self._lock:
             self._require_lease(task)
             self._leased.pop(task.id)
             self._done.add(task.id)
 
-    def fail(self, task: CrawlTask, error: Exception) -> None:
+    def mark_failed(self, task: CrawlTask, error: Exception) -> None:
         with self._lock:
             self._require_lease(task)
             self._leased.pop(task.id)
             self._failed[task.id] = str(error)
 
-    def retry(self, task: CrawlTask, error: Exception) -> None:
+    def requeue(self, task: CrawlTask, error: Exception) -> None:
         with self._lock:
             self._require_lease(task)
             self._leased.pop(task.id)
-            self._push(CrawlTask(task.id, task.request, task.attempt + 1))
+            retry = CrawlTask(task.id, task.request, task.attempt + 1)
+            self._push(retry)
 
     def has_pending(self) -> bool:
         with self._lock:
