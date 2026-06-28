@@ -131,8 +131,8 @@ class SQLiteScheduler:
 
     def _recover(self) -> None:
         self._conn.execute(
-            'UPDATE request_queue SET status = ? WHERE status = ?',
-            (PENDING, LEASED),
+            'UPDATE request_queue SET status = ? WHERE status IN (?, ?)',
+            (PENDING, LEASED, FAILED),
         )
 
     def _transition(self, request: Request, status: str, error: str | None) -> None:
