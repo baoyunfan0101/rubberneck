@@ -17,8 +17,6 @@ class RequestCodec(Protocol):
 
 class JsonRequestCodec:
     def encode(self, request: Request) -> str:
-        if request.callback is not None or request.errback is not None:
-            raise TypeError('SQLiteScheduler cannot persist Request callbacks or errbacks')
         try:
             return json.dumps(
                 {
