@@ -25,19 +25,12 @@ class RetryDownloaderMiddleware(DownloaderMiddleware):
     def should_retry(self, request: Request, value: DownloaderValue) -> bool:
         return isinstance(value, Failure)
 
-    def build_retry_request(
-        self,
-        request: Request,
-        value: DownloaderValue,
-        next_retry: int,
-    ) -> Request:
-        meta = dict(request.meta)
-        meta[self.retry_meta_key] = next_retry
-        return replace(request, meta=meta)
-
     def _retry(self, request: Request, value: DownloaderValue) -> DownloaderResult:
         current_retry = int(request.meta.get(self.retry_meta_key, 0))  # current retry count
         if current_retry >= self.max_retries:
             return (Failure(request, RuntimeError(f'max retries reached: {value!r}')),)
         next_retry = current_retry + 1
-        return (self.build_retry_request(request, value, next_retry),)
+
+        meta = dict(request.meta)
+        meta[self.retry_meta_key] = next_retry
+        return (replace(request, meta=meta),)
