@@ -7,7 +7,7 @@ from .cookie_store import (
 )
 from .middleware import (
     ChallengeDownloaderMiddleware,
-    CookiesMiddleware,
+    CookiesDownloaderMiddleware,
     DOWNLOADER_MIDDLEWARES,
     DownloaderMiddleware,
     RetryDownloaderMiddleware,
@@ -17,18 +17,18 @@ from .session_pool import SessionPoolDownloader
 from .urllib import UrllibDownloader
 
 __all__ = [
-    'ChallengeDownloaderMiddleware',
     'Downloader',
     'DownloaderResult',
     'DownloaderValue',
-    'DownloaderMiddleware',
+    'COOKIE_STORES',
     'CookieJarRegistry',
     'CookieStore',
-    'CookiesMiddleware',
-    'COOKIE_STORES',
-    'DOWNLOADER_MIDDLEWARES',
-    'RetryDownloaderMiddleware',
     'RequestsCookieStore',
+    'ChallengeDownloaderMiddleware',
+    'CookiesDownloaderMiddleware',
+    'DOWNLOADER_MIDDLEWARES',
+    'DownloaderMiddleware',
+    'RetryDownloaderMiddleware',
     'DOWNLOADERS',
     'SessionPoolDownloader',
     'UrllibDownloader',

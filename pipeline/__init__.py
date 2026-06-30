@@ -1,4 +1,9 @@
-from .base import ItemPipeline, PipelineResult, PipelineValue
+from .base import Pipeline, PipelineResult, PipelineValue
 from .registry import PIPELINES
 
-__all__ = ['ItemPipeline', 'PIPELINES', 'PipelineResult', 'PipelineValue']
+__all__ = [
+    'Pipeline',
+    'PipelineResult',
+    'PipelineValue',
+    'PIPELINES',
+]

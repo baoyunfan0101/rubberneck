@@ -5,10 +5,10 @@ from .registry import SCHEDULERS
 from .sqlite import SQLiteScheduler
 
 __all__ = [
+    'Scheduler',
     'JsonRequestCodec',
-    'MemoryScheduler',
     'RequestCodec',
+    'MemoryScheduler',
     'SCHEDULERS',
     'SQLiteScheduler',
-    'Scheduler',
 ]

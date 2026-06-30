@@ -10,7 +10,7 @@ PipelineValue: TypeAlias = Mapping[str, object] | LoggerEvent
 PipelineResult: TypeAlias = Iterable[PipelineValue]
 
 
-class ItemPipeline(Protocol):
+class Pipeline(Protocol):
     def open(self) -> None:
         ...
 

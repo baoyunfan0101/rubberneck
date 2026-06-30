@@ -12,7 +12,7 @@ from .registry import DOWNLOADER_MIDDLEWARES
 
 # decorator = DOWNLOADER_MIDDLEWARES.register('cookies');
 @DOWNLOADER_MIDDLEWARES.register('cookies')
-class CookiesMiddleware(DownloaderMiddleware):
+class CookiesDownloaderMiddleware(DownloaderMiddleware):
     order = 700  # execution order among same-type middlewares
 
     def __init__(
@@ -47,4 +47,4 @@ class CookiesMiddleware(DownloaderMiddleware):
             raise TypeError(f'request.meta[{self.key!r}] must be hashable')
         return value
 
-# CookiesMiddleware = decorator(CookiesMiddleware);
+# CookiesDownloaderMiddleware = decorator(CookiesDownloaderMiddleware);

@@ -5,7 +5,7 @@ from typing import Generic, TypeVar
 
 from .spec import ComponentSpec
 
-T = TypeVar("T")
+T = TypeVar('T')
 
 
 # class ComponentRegistry<T> {...}
@@ -19,7 +19,7 @@ class ComponentRegistry(Generic[T]):
         # validate and record the component, then return it unchanged
         def decorator(component: Callable[..., T]) -> Callable[..., T]:
             if name in self._components:
-                raise ValueError(f"{self.category} component already registered: {name}")
+                raise ValueError(f'{self.category} component already registered: {name}')
             self._components[name] = component
             return component
 
@@ -31,8 +31,8 @@ class ComponentRegistry(Generic[T]):
         try:
             component = self._components[name]
         except KeyError as error:
-            available = ", ".join(sorted(self._components)) or "none"
-            raise KeyError(f"unknown {self.category} component: {name}; available: {available}") from error
+            available = ', '.join(sorted(self._components)) or 'none'
+            raise KeyError(f'unknown {self.category} component: {name}; available: {available}') from error
         return component(**options)
 
     def create_spec(self, spec: ComponentSpec) -> T:

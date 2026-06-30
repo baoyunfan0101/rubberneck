@@ -1,5 +1,5 @@
 from ..registry import ComponentRegistry
-from .base import ItemPipeline
+from .base import Pipeline
 
-# ComponentRegistry<ItemPipeline> PIPELINES = new ComponentRegistry<>('pipeline');
-PIPELINES: ComponentRegistry[ItemPipeline] = ComponentRegistry('pipeline')
+# ComponentRegistry<Pipeline> PIPELINES = new ComponentRegistry<>('pipeline');
+PIPELINES: ComponentRegistry[Pipeline] = ComponentRegistry('pipeline')
