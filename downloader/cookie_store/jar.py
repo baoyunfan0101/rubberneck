@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from collections.abc import Hashable
 from threading import RLock
 
@@ -21,7 +22,7 @@ class CookieJarRegistry:
         self.max_jars = max_jars  # maximum number of cookie jars
         self.default_jar = default_jar  # default cookie jar key
         self.store = store  # cookie store implementation
-        self._stores: dict[Hashable, CookieStore] = {}  # cookie jar key -> cookie store
+        self._stores: OrderedDict[Hashable, CookieStore] = OrderedDict()  # LRU: cookie jar key -> cookie store
         self._lock = RLock()  # allow nested lock acquisition by the same thread
 
     def add_cookie_header(self, key: Hashable, request: Request) -> None:
@@ -33,9 +34,11 @@ class CookieJarRegistry:
             self._get(key).merge(response.cookies)  # use the selected cookie store
 
     def _get(self, key: Hashable) -> CookieStore:
-        if key not in self._stores:  # create a new cookie store for a key seen for the first time
+        if key in self._stores:  # move to end (most recently used)
+            self._stores.move_to_end(key)
+        else:  # create a new cookie store for a key seen for the first time
             if len(self._stores) >= self.max_jars:
-                raise KeyError(f'cookie jar limit reached: {self.max_jars}')
+                self._stores.popitem(last=False)  # evict the least recently used jar
             self._stores[key] = self._new_store()
         return self._stores[key]
 

@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
-from typing import Mapping
-
-from ..logger import LoggerEvent
-from ..model import Request, Response
-from .base import SpiderResult
+from ...model import Response
+from ..base import SpiderResult
 
 
 class SpiderMiddleware:
-    order = 0  # execution order among same-type middlewares
+    order = 0
 
     def open(self) -> None:
         pass

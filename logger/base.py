@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from dataclasses import field
-from enum import StrEnum
+from dataclasses import dataclass, field
+from enum import Enum
 import logging
-from typing import Mapping
-from typing import Protocol
+from typing import Mapping, Protocol
 
 
-class LoggerAction(StrEnum):
+class LoggerAction(str, Enum):
     EVENT = 'event'
     START = 'start'
     FINISH = 'finish'
@@ -20,11 +18,17 @@ class LoggerAction(StrEnum):
 @dataclass(frozen=True)
 class LoggerEvent:
     source: str
-    action: LoggerAction | str = LoggerAction.EVENT
+    action: LoggerAction = LoggerAction.EVENT
     payload: Mapping[str, object] = field(default_factory=dict)
     level: int = logging.INFO
 
 
 class Logger(Protocol):
+    def open(self) -> None:
+        ...
+
     def emit(self, event: LoggerEvent) -> None:
+        ...
+
+    def close(self) -> None:
         ...

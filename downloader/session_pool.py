@@ -6,7 +6,8 @@ from queue import Queue
 import requests
 from requests.adapters import HTTPAdapter
 
-from ..model import Request, Response
+from ..model import Failure, Request, Response
+from .base import DownloaderResult
 from .registry import DOWNLOADERS
 
 
@@ -36,26 +37,29 @@ class SessionPoolDownloader:
     def open(self) -> None:
         pass
 
-    def fetch(self, request: Request) -> tuple[Response, ...]:
+    def fetch(self, request: Request) -> DownloaderResult:
         session = self._available.get()  # block until a session is available
         try:
             self._clear_cookies(session)
-            response = session.request(
-                method=request.method,
-                url=request.url,
-                headers=dict(request.headers),
-                data=request.body,
-                timeout=self.timeout,
-            )
             try:
-                return (Response(
+                response = session.request(
+                    method=request.method,
+                    url=request.url,
+                    headers=dict(request.headers),
+                    data=request.body,
+                    timeout=self.timeout,
+                )
+            except Exception as error:
+                return [Failure(request, error)]
+            try:
+                return [Response(
                     url=response.url,
                     status=response.status_code,
                     body=response.content,
                     headers=dict(response.headers),
                     request=request,
                     cookies=tuple(response.cookies),
-                ),)
+                )]
             finally:
                 response.close()
         finally:

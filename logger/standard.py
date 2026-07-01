@@ -20,46 +20,56 @@ class StandardLogger(Logger):
         self.summary_every = summary_every
         self._last_summary = EngineStats()
 
+    def open(self) -> None:
+        pass
+
     def emit(self, event: LoggerEvent) -> None:
         if event.action == LoggerAction.SUMMARY:
             self._log_summary(event)
         else:
             self._log(event)
 
+    def close(self) -> None:
+        pass
+
     def _log(self, event: LoggerEvent) -> None:
         payload = event.payload
-        parts: list[object] = ['[%s] %s:', event.action.upper(), event.source]
+        parts: list[object] = ['[%s] %s:', event.action.value.upper(), event.source]
         fmt = parts[0]
         for key, value in payload.items():
-            fmt += f' {key}=%s'
+            fmt += f' {key.replace("%", "%%")}=%s'  # % -> %%
             parts.append(value)
         parts[0] = fmt
         self.logger.log(event.level, *parts)
 
     def _log_summary(self, event: LoggerEvent) -> None:
-        summary = event.payload.get('summary')
-        if not isinstance(summary, EngineStats):
+        stats = event.payload.get('stats')
+        if not isinstance(stats, EngineStats):
             return
-        if not (0 < self.summary_every <= summary.done - self._last_summary.done):
+        if not (0 < self.summary_every <= stats.done - self._last_summary.done):
             return
         self.logger.info(
-            '[%s] %s: enqueued=%s(+%s) filtered=%s(+%s) done=%s(+%s) failed=%s(+%s)',
-            event.action.upper(),
+            '''
+            [%s] %s: enqueued=%s(+%s) filtered=%s(+%s) done=%s(+%s) failed=%s(+%s) pending=%s leased=%s
+            ''',
+            event.action.value.upper(),
             event.source,
-            summary.enqueued,
-            summary.enqueued - self._last_summary.enqueued,
-            summary.filtered,
-            summary.filtered - self._last_summary.filtered,
-            summary.done,
-            summary.done - self._last_summary.done,
-            summary.failed,
-            summary.failed - self._last_summary.failed,
+            stats.enqueued,
+            stats.enqueued - self._last_summary.enqueued,
+            stats.filtered,
+            stats.filtered - self._last_summary.filtered,
+            stats.done,
+            stats.done - self._last_summary.done,
+            stats.failed,
+            stats.failed - self._last_summary.failed,
+            event.payload.get('pending'),
+            event.payload.get('leased'),
         )
         self._last_summary = EngineStats(
-            done=summary.done,
-            failed=summary.failed,
-            enqueued=summary.enqueued,
-            filtered=summary.filtered,
+            done=stats.done,
+            failed=stats.failed,
+            enqueued=stats.enqueued,
+            filtered=stats.filtered,
         )
 
 # StandardLogger = decorator(StandardLogger);

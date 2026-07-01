@@ -1,6 +1,5 @@
 from .base import Spider, SpiderResult, SpiderValue
-from .middleware import SpiderMiddleware
-from .registry import SPIDER_MIDDLEWARES
+from .middleware import SpiderMiddleware, SPIDER_MIDDLEWARES
 
 __all__ = [
     'Spider',

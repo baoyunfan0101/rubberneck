@@ -8,7 +8,8 @@ from urllib.parse import urlsplit
 
 from requests.cookies import morsel_to_cookie
 
-from ..model import Request, Response
+from ..model import Failure, Request, Response
+from .base import DownloaderResult
 from .registry import DOWNLOADERS
 
 
@@ -21,7 +22,7 @@ class UrllibDownloader:
     def open(self) -> None:
         pass
 
-    def fetch(self, request: Request) -> tuple[Response, ...]:
+    def fetch(self, request: Request) -> DownloaderResult:
         raw_request = UrlRequest(
             request.url,
             data=request.body,
@@ -30,10 +31,12 @@ class UrllibDownloader:
         )
         try:
             raw_response = urlopen(raw_request, timeout=self.timeout)
-        except HTTPError as e:
-            raw_response = e
+        except HTTPError as error:
+            raw_response = error
+        except Exception as error:
+            return [Failure(request, error)]
         with raw_response:
-            return (Response(
+            return [Response(
                 url=raw_response.url,
                 status=(
                     raw_response.status
@@ -44,7 +47,7 @@ class UrllibDownloader:
                 headers=dict(raw_response.headers.items()),
                 request=request,
                 cookies=self._cookies(raw_response),
-            ),)
+            )]
 
     def close(self) -> None:
         pass

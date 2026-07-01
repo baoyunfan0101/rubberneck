@@ -8,8 +8,8 @@ from .cookie_store import (
 from .middleware import (
     ChallengeDownloaderMiddleware,
     CookiesDownloaderMiddleware,
-    DOWNLOADER_MIDDLEWARES,
     DownloaderMiddleware,
+    DOWNLOADER_MIDDLEWARES,
     RetryDownloaderMiddleware,
 )
 from .registry import DOWNLOADERS
@@ -26,8 +26,8 @@ __all__ = [
     'RequestsCookieStore',
     'ChallengeDownloaderMiddleware',
     'CookiesDownloaderMiddleware',
-    'DOWNLOADER_MIDDLEWARES',
     'DownloaderMiddleware',
+    'DOWNLOADER_MIDDLEWARES',
     'RetryDownloaderMiddleware',
     'DOWNLOADERS',
     'SessionPoolDownloader',

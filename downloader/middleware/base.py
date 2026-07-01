@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from ...logger import LoggerEvent
-from ...model import Request, Response
+from ...model import Request
 from ..base import DownloaderResult
 
 
@@ -11,8 +10,11 @@ class DownloaderMiddleware:
     def open(self) -> None:
         pass
 
-    def process_input(self, request: Request) -> Request | Response | LoggerEvent | None:
-        return None
+    def process_input(
+        self,
+        request: Request,
+    ) -> Request:
+        return request
 
     def process_output(
         self,

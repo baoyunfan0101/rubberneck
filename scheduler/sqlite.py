@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from enum import IntEnum
 import hashlib
 from pathlib import Path
 import sqlite3
@@ -9,10 +10,12 @@ from ..model import Request
 from .codec import JsonRequestCodec, RequestCodec
 from .registry import SCHEDULERS
 
-PENDING = 'PENDING'
-LEASED = 'LEASED'
-DONE = 'DONE'
-FAILED = 'FAILED'
+
+class RequestStatus(IntEnum):
+    PENDING = 0
+    LEASED = 1
+    DONE = 2
+    FAILED = 3
 
 
 @SCHEDULERS.register('sqlite')
@@ -20,7 +23,7 @@ class SQLiteScheduler:
     def __init__(
         self,
         path: str = './data',
-        filename: str = 'rubberneck.db',
+        filename: str = 'rubberneck_scheduler.db',
         reset: bool = False,
         codec: RequestCodec | None = None,
     ) -> None:
@@ -55,7 +58,7 @@ class SQLiteScheduler:
                     (fingerprint, payload, priority, status)
                 VALUES (?, ?, ?, ?)
                 ''',
-                (fingerprint, payload, request.priority, PENDING),
+                (fingerprint, payload, request.priority, RequestStatus.PENDING.value),
             )
             return cursor.rowcount == 1
 
@@ -71,7 +74,7 @@ class SQLiteScheduler:
                     ORDER BY priority DESC, sequence ASC
                     LIMIT 1
                     ''',
-                    (PENDING,),
+                    (RequestStatus.PENDING.value,),
                 ).fetchone()
                 if row is None:
                     self._conn.commit()  # persist changes and release the lock
@@ -82,7 +85,7 @@ class SQLiteScheduler:
                     SET status = ?, error = NULL
                     WHERE fingerprint = ?
                     ''',
-                    (LEASED, row[0]),
+                    (RequestStatus.LEASED.value, row[0]),
                 )
                 self._conn.commit()
                 return self.codec.decode(row[1])
@@ -91,19 +94,19 @@ class SQLiteScheduler:
                 raise  # re-raise the original exception
 
     def mark_done(self, request: Request) -> None:
-        self._transition(request, DONE, None)
+        self._transition(request, RequestStatus.DONE, None)
 
     def mark_failed(self, request: Request, error: Exception) -> None:
-        self._transition(request, FAILED, str(error))
+        self._transition(request, RequestStatus.FAILED, str(error))
 
     def has_pending(self) -> bool:
         return self.pending_count() > 0
 
     def pending_count(self) -> int:
-        return self._count(PENDING)
+        return self._count(RequestStatus.PENDING)
 
     def leased_count(self) -> int:
-        return self._count(LEASED)
+        return self._count(RequestStatus.LEASED)
 
     def close(self) -> None:
         with self._lock:
@@ -117,7 +120,7 @@ class SQLiteScheduler:
                 fingerprint TEXT UNIQUE NOT NULL,
                 payload TEXT NOT NULL,
                 priority INTEGER NOT NULL,
-                status TEXT NOT NULL,
+                status INTEGER NOT NULL,
                 error TEXT
             )
             '''
@@ -132,10 +135,10 @@ class SQLiteScheduler:
     def _recover(self) -> None:
         self._conn.execute(
             'UPDATE request_queue SET status = ? WHERE status IN (?, ?)',
-            (PENDING, LEASED, FAILED),
+            (RequestStatus.PENDING.value, RequestStatus.LEASED.value, RequestStatus.FAILED.value),
         )
 
-    def _transition(self, request: Request, status: str, error: str | None) -> None:
+    def _transition(self, request: Request, status: RequestStatus, error: str | None) -> None:
         with self._lock:
             cursor = self._conn.execute(
                 '''
@@ -143,16 +146,16 @@ class SQLiteScheduler:
                 SET status = ?, error = ?
                 WHERE fingerprint = ? AND status = ?
                 ''',
-                (status, error, self._fingerprint(request), LEASED),
+                (status.value, error, self._fingerprint(request), RequestStatus.LEASED.value),
             )
             if cursor.rowcount != 1:
                 raise RuntimeError(f'request is not leased: {request.url}')
 
-    def _count(self, status: str) -> int:
+    def _count(self, status: RequestStatus) -> int:
         with self._lock:
             row = self._conn.execute(
                 'SELECT COUNT(*) FROM request_queue WHERE status = ?',
-                (status,),
+                (status.value,),
             ).fetchone()
             return row[0]
 

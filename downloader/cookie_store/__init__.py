@@ -1,7 +1,7 @@
 from .base import CookieStore
 from .jar import CookieJarRegistry
 from .registry import COOKIE_STORES
-from .requests import RequestsCookieStore
+from .requests_store import RequestsCookieStore
 
 __all__ = [
     'CookieStore',
