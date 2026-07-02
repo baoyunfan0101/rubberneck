@@ -135,7 +135,7 @@ class Engine:
             middleware, request = stack.pop()
             output = middleware.process_output(request, output)
 
-        return output
+        return list(output)  # consume lazy output in worker threads
 
     def run_spider(self, response: Response) -> SpiderResult:
         stack: list[tuple[SpiderMiddleware, Response]] = []
@@ -150,7 +150,7 @@ class Engine:
             middleware, response = stack.pop()
             output = middleware.process_output(response, output)
 
-        return output
+        return list(output)  # consume lazy output in worker threads
 
     def run_pipeline(self, item: Mapping[str, object]) -> PipelineResult:
         stack: list[tuple[PipelineMiddleware, Mapping[str, object]]] = []
@@ -165,7 +165,7 @@ class Engine:
             middleware, item = stack.pop()
             output = middleware.process_output(item, output)
 
-        return output
+        return list(output)  # consume lazy output in worker threads
 
     def _open_components(self) -> None:
         self.scheduler.open()
