@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rubberneck"
+version = "0.1.0"
+description = "A small, composable crawling engine"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = ["requests>=2.31"]
+
+[tool.setuptools]
+packages = [
+    "rubberneck",
+    "rubberneck.downloader",
+    "rubberneck.downloader.middleware",
+    "rubberneck.downloader.cookie_store",
+    "rubberneck.engine",
+    "rubberneck.logger",
+    "rubberneck.model",
+    "rubberneck.pipeline",
+    "rubberneck.pipeline.middleware",
+    "rubberneck.scheduler",
+    "rubberneck.spider",
+    "rubberneck.spider.middleware",
+    "rubberneck.registry",
+]
+package-dir = {rubberneck = "."}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
