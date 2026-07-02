@@ -101,7 +101,7 @@ class ExecutionRuntime:
                         try:
                             output = future.result()
                         except Exception as error:
-                            self._mark_failed(order, error, 'downloader')
+                            self.record_failure(order, error, 'downloader')
                             continue
 
                         if order.acked:
@@ -130,7 +130,7 @@ class ExecutionRuntime:
                                     self.spider_running[next_future] = order
 
                                 elif isinstance(value, Failure):
-                                    self._mark_failed(order, value.exception, 'downloader')
+                                    self.record_failure(order, value.exception, 'downloader')
                                     break
 
                                 else:
@@ -138,10 +138,10 @@ class ExecutionRuntime:
                                         'downloader must return Request, Response, Failure, or LoggerEvent'
                                     )
                         except Exception as error:
-                            self._mark_failed(order, error, 'downloader')
+                            self.record_failure(order, error, 'downloader')
                             continue
 
-                        self._mark_done_if_idle(order)
+                        self.check_finished(order)
 
                     # router: spider -> scheduler / pipeline / logger
                     elif future in self.spider_running:
@@ -152,7 +152,7 @@ class ExecutionRuntime:
                         try:
                             output = future.result()
                         except Exception as error:
-                            self._mark_failed(order, error, 'spider')
+                            self.record_failure(order, error, 'spider')
                             continue
 
                         if order.acked:
@@ -186,10 +186,10 @@ class ExecutionRuntime:
                                         'spider output must be a Request, mapping-like item, or LoggerEvent'
                                     )
                         except Exception as error:
-                            self._mark_failed(order, error, 'spider')
+                            self.record_failure(order, error, 'spider')
                             continue
 
-                        self._mark_done_if_idle(order)
+                        self.check_finished(order)
 
                     # router: pipeline processed / failed
                     elif future in self.pipeline_running:
@@ -200,7 +200,7 @@ class ExecutionRuntime:
                         try:
                             output = future.result()
                         except Exception as error:
-                            self._mark_failed(order, error, 'pipeline')
+                            self.record_failure(order, error, 'pipeline')
                             continue
 
                         if order.acked:
@@ -221,30 +221,26 @@ class ExecutionRuntime:
                                         'pipeline must return mapping-like item or LoggerEvent'
                                     )
                         except Exception as error:
-                            self._mark_failed(order, error, 'pipeline')
+                            self.record_failure(order, error, 'pipeline')
                             continue
 
-                        self._mark_done_if_idle(order)
+                        self.check_finished(order)
 
         finally:
             self.pipeline_executor.shutdown()
             self.spider_executor.shutdown()
             self.downloader_executor.shutdown()
 
-    def _mark_done_if_idle(self, order: WorkOrder) -> None:
+    def check_finished(self, order: WorkOrder) -> None:
         if order.acked or not order.is_idle():
             return
 
-        order.acked = True
         if order.error is not None:
-            self.scheduler.mark_failed(order.request, order.error)
-            self.stats.failed += 1
+            self._mark_failed(order)
         else:
-            self.scheduler.mark_done(order.request)
-            self.stats.done += 1
-        self._emit_done(order)
+            self._mark_done(order)
 
-    def _mark_failed(self, order: WorkOrder, error: Exception, source: str) -> None:
+    def record_failure(self, order: WorkOrder, error: Exception, source: str) -> None:
         if order.acked:
             return
 
@@ -257,7 +253,19 @@ class ExecutionRuntime:
         )
         order.collect(event)
         self.emit(event)
-        self._mark_done_if_idle(order)
+        self.check_finished(order)
+
+    def _mark_done(self, order: WorkOrder) -> None:
+        order.acked = True
+        self.scheduler.mark_done(order.request)
+        self.stats.done += 1
+        self._emit_done(order)
+
+    def _mark_failed(self, order: WorkOrder) -> None:
+        order.acked = True
+        self.scheduler.mark_failed(order.request, order.error)
+        self.stats.failed += 1
+        self._emit_done(order)
 
     def _emit_done(self, order: WorkOrder) -> None:
         self.emit(LoggerEvent(
