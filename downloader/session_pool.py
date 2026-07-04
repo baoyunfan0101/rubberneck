@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+import random
+from collections.abc import Callable, Sequence
 from queue import Queue
+from typing import Mapping
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -19,6 +21,7 @@ class SessionPoolDownloader:
         pool_size: int = 8,
         max_host_pools: int = 10,
         timeout: float | tuple[float, float] = (5.0, 30.0),
+        headers: Sequence[Mapping[str, str]] = (),
         session_factory: Callable[[], requests.Session] | None = None,
     ) -> None:
         if pool_size < 1:
@@ -26,8 +29,9 @@ class SessionPoolDownloader:
         if max_host_pools < 1:
             raise ValueError('max_host_pools must be at least 1')
         self.timeout = timeout  # request timeout or connect/read timeout pair
+        header_choices = tuple(dict(header) for header in headers)
         self._sessions = [
-            self._new_session(max_host_pools, session_factory)
+            self._new_session(max_host_pools, session_factory, header_choices)
             for _ in range(pool_size)
         ]  # session pool
         self._available: Queue[requests.Session] = Queue(maxsize=pool_size)  # idle sessions
@@ -80,8 +84,11 @@ class SessionPoolDownloader:
     def _new_session(
         max_host_pools: int,
         session_factory: Callable[[], requests.Session] | None,
+        headers: Sequence[Mapping[str, str]],
     ) -> requests.Session:
         session = session_factory() if session_factory is not None else requests.Session()
+        if headers:
+            session.headers.update(random.choice(headers))
         adapter = HTTPAdapter(
             pool_connections=max_host_pools,  # number of host pools this session caches
             pool_maxsize=1,  # number of connections each host pool keeps
