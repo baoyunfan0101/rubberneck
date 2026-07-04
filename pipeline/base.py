@@ -4,8 +4,9 @@ from collections.abc import Iterable
 from typing import Mapping, Protocol, TypeAlias
 
 from ..logger import LoggerEvent
+from ..model import Failure
 
-PipelineValue: TypeAlias = Mapping[str, object] | LoggerEvent
+PipelineValue: TypeAlias = Mapping[str, object] | Failure | LoggerEvent
 PipelineResult: TypeAlias = Iterable[PipelineValue]
 
 

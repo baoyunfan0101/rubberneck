@@ -4,9 +4,9 @@ from collections.abc import Iterable
 from typing import Mapping, TypeAlias
 
 from ..logger import LoggerEvent
-from ..model import Request, Response
+from ..model import Failure, Request, Response
 
-SpiderValue: TypeAlias = Request | Mapping[str, object] | LoggerEvent
+SpiderValue: TypeAlias = Request | Mapping[str, object] | Failure | LoggerEvent
 SpiderResult: TypeAlias = Iterable[SpiderValue]
 
 

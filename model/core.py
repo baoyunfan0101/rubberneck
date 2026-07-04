@@ -30,6 +30,9 @@ class Response:
     request: Request | None = None
     cookies: tuple[Cookie, ...] = ()
 
+    def __str__(self) -> str:
+        return f'{self.status} {self.url}'
+
     @property
     def text(self) -> str:
         content_type = self.headers.get('content-type', '')
@@ -43,5 +46,11 @@ class Response:
 
 @dataclass
 class Failure:
-    request: Request
+    value: object
     exception: Exception
+    stage: str = ''
+
+    def __str__(self) -> str:
+        if self.stage:
+            return f'{self.stage}: {self.value} failed: {self.exception}'
+        return f'{self.value} failed: {self.exception}'

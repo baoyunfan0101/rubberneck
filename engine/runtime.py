@@ -101,7 +101,7 @@ class ExecutionRuntime:
                         try:
                             output = future.result()
                         except Exception as error:
-                            self.record_failure(order, error, 'downloader')
+                            self.record_exception(order, error, 'downloader')
                             continue
 
                         if order.acked:
@@ -130,7 +130,7 @@ class ExecutionRuntime:
                                     self.spider_running[next_future] = order
 
                                 elif isinstance(value, Failure):
-                                    self.record_failure(order, value.exception, 'downloader')
+                                    self.record_failure(order, value, 'downloader')
                                     break
 
                                 else:
@@ -138,7 +138,7 @@ class ExecutionRuntime:
                                         'downloader must return Request, Response, Failure, or LoggerEvent'
                                     )
                         except Exception as error:
-                            self.record_failure(order, error, 'downloader')
+                            self.record_exception(order, error, 'downloader')
                             continue
 
                         self.check_finished(order)
@@ -152,7 +152,7 @@ class ExecutionRuntime:
                         try:
                             output = future.result()
                         except Exception as error:
-                            self.record_failure(order, error, 'spider')
+                            self.record_exception(order, error, 'spider')
                             continue
 
                         if order.acked:
@@ -181,12 +181,16 @@ class ExecutionRuntime:
                                     order.pipelines += 1
                                     self.pipeline_running[next_future] = order
 
+                                elif isinstance(value, Failure):
+                                    self.record_failure(order, value, 'spider')
+                                    break
+
                                 else:
                                     raise TypeError(
-                                        'spider output must be a Request, mapping-like item, or LoggerEvent'
+                                        'spider output must be a Request, mapping-like item, Failure, or LoggerEvent'
                                     )
                         except Exception as error:
-                            self.record_failure(order, error, 'spider')
+                            self.record_exception(order, error, 'spider')
                             continue
 
                         self.check_finished(order)
@@ -200,7 +204,7 @@ class ExecutionRuntime:
                         try:
                             output = future.result()
                         except Exception as error:
-                            self.record_failure(order, error, 'pipeline')
+                            self.record_exception(order, error, 'pipeline')
                             continue
 
                         if order.acked:
@@ -216,12 +220,16 @@ class ExecutionRuntime:
                                     order.processed += 1
                                     self.emit(LoggerEvent('pipeline', payload=value))
 
+                                elif isinstance(value, Failure):
+                                    self.record_failure(order, value, 'pipeline')
+                                    break
+
                                 else:
                                     raise TypeError(
-                                        'pipeline must return mapping-like item or LoggerEvent'
+                                        'pipeline must return mapping-like item, Failure, or LoggerEvent'
                                     )
                         except Exception as error:
-                            self.record_failure(order, error, 'pipeline')
+                            self.record_exception(order, error, 'pipeline')
                             continue
 
                         self.check_finished(order)
@@ -240,15 +248,43 @@ class ExecutionRuntime:
         else:
             self._mark_done(order)
 
-    def record_failure(self, order: WorkOrder, error: Exception, source: str) -> None:
+    def record_exception(self, order: WorkOrder, error: Exception, component: str) -> None:
         if order.acked:
             return
 
         order.error = error
         event = LoggerEvent(
-            source,
+            'engine',
             action=LoggerAction.FAILED,
-            payload={'request': order.request, 'error': error},
+            payload={
+                'component': component,
+                'request': order.request,
+                'error': error,
+            },
+            level=logging.ERROR,
+        )
+        order.collect(event)
+        self.emit(event)
+        self.check_finished(order)
+
+    def record_failure(
+        self,
+        order: WorkOrder,
+        failure: Failure,
+        component: str,
+    ) -> None:
+        if order.acked:
+            return
+
+        order.error = failure.exception
+        event = LoggerEvent(
+            'engine',
+            action=LoggerAction.FAILED,
+            payload={
+                'component': component,
+                'request': order.request,
+                'failure': failure,
+            },
             level=logging.ERROR,
         )
         order.collect(event)
