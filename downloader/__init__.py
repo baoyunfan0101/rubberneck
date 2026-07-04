@@ -1,14 +1,15 @@
 from .base import Downloader, DownloaderResult, DownloaderValue
 from .cookie_store import (
-    COOKIE_STORES,
-    CookieJarRegistry,
     CookieStore,
+    CookieJarRegistry,
+    COOKIE_STORES,
     RequestsCookieStore,
 )
 from .middleware import (
+    DownloaderMiddleware,
     ChallengeDownloaderMiddleware,
     CookiesDownloaderMiddleware,
-    DownloaderMiddleware,
+    RefererDownloaderMiddleware,
     DOWNLOADER_MIDDLEWARES,
     RetryDownloaderMiddleware,
 )
@@ -20,13 +21,14 @@ __all__ = [
     'Downloader',
     'DownloaderResult',
     'DownloaderValue',
-    'COOKIE_STORES',
-    'CookieJarRegistry',
     'CookieStore',
+    'CookieJarRegistry',
+    'COOKIE_STORES',
     'RequestsCookieStore',
+    'DownloaderMiddleware',
     'ChallengeDownloaderMiddleware',
     'CookiesDownloaderMiddleware',
-    'DownloaderMiddleware',
+    'RefererDownloaderMiddleware',
     'DOWNLOADER_MIDDLEWARES',
     'RetryDownloaderMiddleware',
     'DOWNLOADERS',
