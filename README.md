@@ -151,6 +151,8 @@ engine = Engine(
 
 `Engine` wires the components together. Pass components; use `*_workers` to set stage concurrency.
 
+When a `WorkOrder` finishes, the logger receives its `WorkOrder.payload` as `LoggerAction.DONE` and an `EngineStats` as `LoggerAction.SUMMARY`. The payload contains `EngineAction.COLLECT` values and per-order counts.
+
 ### Spider
 
 Rubberneck does not provide a concrete spider. Implement `start_requests()` and `parse()`.
@@ -203,7 +205,7 @@ Rubberneck does not provide concrete pipeline middlewares. A pipeline middleware
 
 ### Logger
 
-- `standard`: writes engine records through Python `logging` (`name`, `logger`, `summary_every`).
+- `standard`: writes engine records through Python `logging` (`name`, `logger`, `summary_every`, `actions`).
 
 ## Installation
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 import logging
 
 from ..engine.state import EngineStats
@@ -15,15 +16,19 @@ class StandardLogger(Logger):
         name: str = 'rubberneck',
         logger: logging.Logger | None = None,
         summary_every: int = 0,
+        actions: Iterable[LoggerAction | str] | None = None,
     ) -> None:
         self.logger = logger or logging.getLogger(name)
         self.summary_every = summary_every
+        self.actions = None if actions is None else {LoggerAction(action) for action in actions}
         self._last_summary = EngineStats()
 
     def open(self) -> None:
         pass
 
     def emit(self, event: LogRecord) -> None:
+        if self.actions is not None and event.action not in self.actions:
+            return
         if event.action == LoggerAction.SUMMARY:
             self._log_summary(event)
         else:
