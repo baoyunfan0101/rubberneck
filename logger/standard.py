@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 from ..engine.state import EngineStats
-from .base import Logger, LoggerAction, LoggerEvent
+from .base import Logger, LoggerAction, LogRecord
 from .registry import LOGGERS
 
 
@@ -23,7 +23,7 @@ class StandardLogger(Logger):
     def open(self) -> None:
         pass
 
-    def emit(self, event: LoggerEvent) -> None:
+    def emit(self, event: LogRecord) -> None:
         if event.action == LoggerAction.SUMMARY:
             self._log_summary(event)
         else:
@@ -32,17 +32,16 @@ class StandardLogger(Logger):
     def close(self) -> None:
         pass
 
-    def _log(self, event: LoggerEvent) -> None:
-        payload = event.payload
+    def _log(self, event: LogRecord) -> None:
         parts: list[object] = ['[%s] %s:', event.action.value.upper(), event.source]
         fmt = parts[0]
-        for key, value in payload.items():
+        for key, value in event.payload.items():
             fmt += f' {key.replace("%", "%%")}=%s'  # % -> %%
             parts.append(value)
         parts[0] = fmt
         self.logger.log(event.level, *parts)
 
-    def _log_summary(self, event: LoggerEvent) -> None:
+    def _log_summary(self, event: LogRecord) -> None:
         stats = event.payload.get('stats')
         if not isinstance(stats, EngineStats):
             return

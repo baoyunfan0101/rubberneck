@@ -31,69 +31,76 @@ flowchart TD
         Done["Scheduler.mark_done()"]
         Failed["Scheduler.mark_failed()"]
     end
-
+    
     subgraph EngineModule["Engine"]
         Seed["Engine.seed()"]
-        Check["Engine.check_finished()"]
+        Run["Engine.run()"]
+        CompleteD["Engine._complete_downloader()"]
+        CompleteS["Engine._complete_spider()"]
+        CompleteP["Engine._complete_pipeline()"]
+        HandleEvent["Engine._handle_engine_event()"]
+        Check["Engine._check_finished()"]
     end
 
-    subgraph DownloaderModule["Downloader"]
-        DIn["DownloaderMiddleware.process_input()"]
-        Downloader["Downloader.fetch()"]
-        DOut["DownloaderMiddleware.process_output()"]
+    subgraph Components[" "]
+        subgraph DownloaderModule["Downloader"]
+            DIn["DownloaderMiddleware.process_input()"]
+            Downloader["Downloader.fetch()"]
+            DOut["DownloaderMiddleware.process_output()"]
+        end
+
+        subgraph SpiderModule["Spider"]
+            SIn["SpiderMiddleware.process_input()"]
+            Spider["Spider.parse()"]
+            SOut["SpiderMiddleware.process_output()"]
+        end
+
+        subgraph PipelineModule["Pipeline"]
+            PIn["PipelineMiddleware.process_input()"]
+            Pipeline["Pipeline.process_item()"]
+            POut["PipelineMiddleware.process_output()"]
+        end
     end
 
-    subgraph SpiderModule["Spider"]
-        SIn["SpiderMiddleware.process_input()"]
-        Spider["Spider.parse()"]
-        SOut["SpiderMiddleware.process_output()"]
-    end
-
-    subgraph PipelineModule["Pipeline"]
-        PIn["PipelineMiddleware.process_input()"]
-        Pipeline["Pipeline.process_item()"]
-        POut["PipelineMiddleware.process_output()"]
-    end
 
     Start["Spider.start_requests()"] -->|Request| Seed
     Seed -->|Request| Enqueue
     Enqueue --> Dequeue
-    Dequeue -->|Request| DIn
+    Dequeue -->|Request| Run
+    Run --> DIn
     DIn --> Downloader
     Downloader --> DOut
+    DOut --> CompleteD
 
-    DOut -->|Request| DIn
-    DOut -->|Response| SIn
-    DOut -->|Failure| Failed
-    DOut -->|LoggerEvent| Logger["logger"]
-    DOut --> Check
+    CompleteD -->|Request| DIn
+    CompleteD -->|Response| SIn
+    CompleteD -->|Failure| Check
+    CompleteD -->|EngineEvent| HandleEvent
 
     SIn --> Spider
     Spider --> SOut
+    SOut --> CompleteS
 
-    SOut -->|Request| Enqueue
-    SOut -->|Item| PIn
-    SOut -->|LoggerEvent| Logger
-    SOut --> Check
+    CompleteS -->|Request| Enqueue
+    CompleteS -->|Item| PIn
+    CompleteS -->|Failure| Check
+    CompleteS -->|EngineEvent| HandleEvent
 
     PIn --> Pipeline
     Pipeline --> POut
+    POut --> CompleteP
 
-    POut -->|Item| Logger
-    POut -->|LoggerEvent| Logger
-    POut --> Check
+    CompleteP -->|Failure| Check
+    CompleteP -->|EngineEvent| HandleEvent
 
-    Check -->|no running work and no error| Done
-    Check -->|no running work and error| Failed
-
-    Done --> Logger
-    Failed --> Logger
+    Check --> Done
+    Check --> Failed
 ```
 
 ## Minimal Crawler
 
 ```python
-from rubberneck import Engine, Request, Response, Spider
+from rubberneck import Engine, Item, Request, Response, Spider
 
 
 class ExampleSpider(Spider):
@@ -103,7 +110,7 @@ class ExampleSpider(Spider):
         yield Request("https://example.org/")
 
     def parse(self, response: Response):
-        yield {"url": response.url, "status": response.status}
+        yield Item({"url": response.url, "status": response.status})
 
 
 Engine(ExampleSpider()).run()

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from collections.abc import Mapping
 from typing import Any
 
-from ..logger import LoggerEvent
 from ..model import Request
 
 
@@ -27,13 +27,12 @@ class WorkOrder:
     filtered: int = 0  # number of filtered requests
     processed: int = 0  # number of processed items
 
-    payload: dict[str, Any] = field(default_factory=dict)  # collected logger payloads by source
+    payload: dict[str, Any] = field(default_factory=dict)  # collected engine event payloads
     error: Exception | None = None  # final error
     acked: bool = False  # finally acknowledged
 
-    def collect(self, event: LoggerEvent) -> None:
-        if event.payload:
-            self.payload[event.source] = event.payload
+    def collect(self, payload: Mapping[str, object]) -> None:
+        self.payload.update(payload)
 
     def is_idle(self) -> bool:
         return self.downloaders == 0 and self.spiders == 0 and self.pipelines == 0

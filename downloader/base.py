@@ -3,10 +3,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Protocol, TypeAlias
 
-from ..logger import LoggerEvent
-from ..model import Failure, Request, Response
+from ..model import EngineEvent, Failure, Request, Response
 
-DownloaderValue: TypeAlias = Request | Response | Failure | LoggerEvent
+DownloaderValue: TypeAlias = Request | Response | Failure | EngineEvent
 DownloaderResult: TypeAlias = Iterable[DownloaderValue]
 
 

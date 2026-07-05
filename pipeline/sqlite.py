@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from threading import RLock
 
+from ..model import Item
 from .base import PipelineResult
 from .registry import PIPELINES
 
@@ -62,7 +63,7 @@ class SQLitePipeline:
 
         self._columns = self._load_columns()  # load existing columns
 
-    def process_item(self, item: Mapping[str, object]) -> PipelineResult:
+    def process_item(self, item: Item) -> PipelineResult:
         if not item:
             return ()
 

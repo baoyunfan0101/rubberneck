@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 import logging
 from typing import cast
 
@@ -14,10 +14,10 @@ from ..downloader import (
 from ..logger import (
     Logger,
     LoggerAction,
-    LoggerEvent,
+    LogRecord,
     LOGGERS,
 )
-from ..model import Request, Response
+from ..model import Item, Request, Response
 from ..pipeline import (
     Pipeline,
     PipelineResult,
@@ -105,16 +105,16 @@ class Engine:
         try:
             self._open_components()
             runtime.seed(self.spider.start_requests())
-            self.emit(LoggerEvent(
-                'engine',
+            self.emit(LogRecord(
+                source='engine',
                 action=LoggerAction.START,
                 payload=self.summary(),
                 level=logging.INFO,
             ))
             runtime.run()
         finally:
-            self.emit(LoggerEvent(
-                'engine',
+            self.emit(LogRecord(
+                source='engine',
                 action=LoggerAction.FINISH,
                 payload=self.summary(),
                 level=logging.INFO,
@@ -152,11 +152,13 @@ class Engine:
 
         return list(output)  # consume lazy output in worker threads
 
-    def run_pipeline(self, item: Mapping[str, object]) -> PipelineResult:
-        stack: list[tuple[PipelineMiddleware, Mapping[str, object]]] = []
+    def run_pipeline(self, item: Item) -> PipelineResult:
+        stack: list[tuple[PipelineMiddleware, Item]] = []
 
         for middleware in self.pipeline_middlewares:
             item = middleware.process_input(item)
+            if not isinstance(item, Item):
+                raise TypeError('pipeline middleware input must return an Item')
             stack.append((middleware, item))
 
         output = self.pipeline.process_item(item)
@@ -193,7 +195,7 @@ class Engine:
             middleware.close()
         self.scheduler.close()
 
-    def emit(self, event: LoggerEvent) -> None:
+    def emit(self, event: LogRecord) -> None:
         self.logger.emit(event)
 
     def summary(self) -> dict[str, object]:

@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from typing import Mapping
-
 from ..base import PipelineResult
+from ...model import Item
 
 
 class PipelineMiddleware:
@@ -11,12 +10,12 @@ class PipelineMiddleware:
     def open(self) -> None:
         pass
 
-    def process_input(self, item: Mapping[str, object]) -> Mapping[str, object]:
+    def process_input(self, item: Item) -> Item:
         return item
 
     def process_output(
         self,
-        item: Mapping[str, object],
+        item: Item,
         output: PipelineResult,
     ) -> PipelineResult:
         return output

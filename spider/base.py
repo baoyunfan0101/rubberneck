@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Mapping, TypeAlias
+from typing import TypeAlias
 
-from ..logger import LoggerEvent
-from ..model import Failure, Request, Response
+from ..model import EngineEvent, Failure, Item, Request, Response
 
-SpiderValue: TypeAlias = Request | Mapping[str, object] | Failure | LoggerEvent
+SpiderValue: TypeAlias = Request | Item | Failure | EngineEvent
 SpiderResult: TypeAlias = Iterable[SpiderValue]
 
 

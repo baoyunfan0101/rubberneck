@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Mapping, Protocol, TypeAlias
+from typing import Protocol, TypeAlias
 
-from ..logger import LoggerEvent
-from ..model import Failure
+from ..model import EngineEvent, Failure, Item
 
-PipelineValue: TypeAlias = Mapping[str, object] | Failure | LoggerEvent
+PipelineValue: TypeAlias = Failure | EngineEvent
 PipelineResult: TypeAlias = Iterable[PipelineValue]
 
 
@@ -14,7 +13,7 @@ class Pipeline(Protocol):
     def open(self) -> None:
         ...
 
-    def process_item(self, item: Mapping[str, object]) -> PipelineResult:
+    def process_item(self, item: Item) -> PipelineResult:
         ...
 
     def close(self) -> None:

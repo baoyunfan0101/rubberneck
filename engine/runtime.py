@@ -5,8 +5,8 @@ from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 import logging
 
 from ..downloader import DownloaderResult
-from ..logger import LoggerAction, LoggerEvent
-from ..model import Failure, Request, Response
+from ..logger import LoggerAction, LogRecord
+from ..model import EngineAction, EngineEvent, Failure, Item, Request, Response
 from ..pipeline import PipelineResult
 from ..scheduler import Scheduler
 from ..spider import SpiderResult
@@ -19,11 +19,11 @@ class ExecutionRuntime:
         *,
         scheduler: Scheduler,
         stats: EngineStats,
-        emit: Callable[[LoggerEvent], None],
+        emit: Callable[[LogRecord], None],
         summary: Callable[[], dict[str, object]],
         run_downloader: Callable[[Request], DownloaderResult],
         run_spider: Callable[[Response], SpiderResult],
-        run_pipeline: Callable[[Mapping[str, object]], PipelineResult],
+        run_pipeline: Callable[[Item], PipelineResult],
         downloader_workers: int,
         spider_workers: int,
         pipeline_workers: int,
@@ -55,6 +55,9 @@ class ExecutionRuntime:
         self.run_pipeline = run_pipeline
 
         self.target_downloader_inflight = downloader_workers
+        self.stop_gracefully_requested = False
+        self.stop_now_requested = False
+        self.stop_mode = ''
 
     def seed(self, requests: Iterable[Request]) -> None:
         for request in requests:
@@ -66,180 +69,245 @@ class ExecutionRuntime:
 
     def run(self) -> None:
         try:
-            while self.scheduler.has_pending() or self._has_running_work():
-                # fill downloader inflight
-                while len(self.downloader_running) < self.target_downloader_inflight:
-                    request = self.scheduler.dequeue()
-                    if request is None:
-                        break
+            while (
+                (
+                    not (self.stop_gracefully_requested or self.stop_now_requested)
+                    and self.scheduler.has_pending()
+                )
+                or self._has_running_work()
+            ):
+                request: Request | None = None
+                order: WorkOrder | None = None
+                future: Future[DownloaderResult] | None = None
+                try:
+                    # fill downloader inflight
+                    while (
+                        not (self.stop_gracefully_requested or self.stop_now_requested)
+                        and len(self.downloader_running) < self.target_downloader_inflight
+                    ):
+                        request = self.scheduler.dequeue()
+                        if request is None:
+                            break
 
-                    # router: scheduler -> downloader
-                    order = WorkOrder(request)
-                    future = self.downloader_executor.submit(self.run_downloader, request)
-                    order.downloaders += 1
-                    self.downloader_running[future] = order
+                        # router: scheduler -> downloader
+                        order = WorkOrder(request)
+                        future = self.downloader_executor.submit(self.run_downloader, request)
+                        order.downloaders += 1
+                        self.downloader_running[future] = order
+                except KeyboardInterrupt:
+                    if request is not None:
+                        if order is None:
+                            order = WorkOrder(request)
+                        if future is None:
+                            future = self.downloader_executor.submit(self.run_downloader, request)
+                        if future not in self.downloader_running:
+                            order.downloaders += 1
+                            self.downloader_running[future] = order
+                    self._request_stop_gracefully('keyboard interrupt')
+                    continue
 
                 if not self._has_running_work():
                     continue
 
-                completed, _ = wait(
-                    {
-                        *self.downloader_running,
-                        *self.spider_running,
-                        *self.pipeline_running,
-                    },
-                    return_when=FIRST_COMPLETED,
-                )
+                try:
+                    completed, _ = wait(
+                        {
+                            *self.downloader_running,
+                            *self.spider_running,
+                            *self.pipeline_running,
+                        },
+                        return_when=FIRST_COMPLETED,
+                    )
+                except KeyboardInterrupt:
+                    self._request_stop_gracefully('keyboard interrupt')
+                    continue
 
                 for future in completed:
-                    # router: downloader -> downloader / spider / logger
+                    if self.stop_now_requested:
+                        self.downloader_running.pop(future, None)
+                        self.spider_running.pop(future, None)
+                        self.pipeline_running.pop(future, None)
+                        continue
+
                     if future in self.downloader_running:
-
-                        order = self.downloader_running.pop(future)
-                        order.downloaders -= 1
-
-                        try:
-                            output = future.result()
-                        except Exception as error:
-                            self.record_exception(order, error, 'downloader')
-                            continue
-
-                        if order.acked:
-                            continue
-
-                        try:
-                            for value in output:
-                                if isinstance(value, LoggerEvent):
-                                    order.collect(value)
-                                    self.emit(value)
-
-                                elif isinstance(value, Request):
-                                    next_future = self.downloader_executor.submit(
-                                        self.run_downloader,
-                                        value,
-                                    )
-                                    order.downloaders += 1
-                                    self.downloader_running[next_future] = order
-
-                                elif isinstance(value, Response):
-                                    next_future = self.spider_executor.submit(
-                                        self.run_spider,
-                                        value,
-                                    )
-                                    order.spiders += 1
-                                    self.spider_running[next_future] = order
-
-                                elif isinstance(value, Failure):
-                                    self.record_failure(order, value, 'downloader')
-                                    break
-
-                                else:
-                                    raise TypeError(
-                                        'downloader must return Request, Response, Failure, or LoggerEvent'
-                                    )
-                        except Exception as error:
-                            self.record_exception(order, error, 'downloader')
-                            continue
-
-                        self.check_finished(order)
-
-                    # router: spider -> scheduler / pipeline / logger
+                        self._complete_downloader(future)
                     elif future in self.spider_running:
-
-                        order = self.spider_running.pop(future)
-                        order.spiders -= 1
-
-                        try:
-                            output = future.result()
-                        except Exception as error:
-                            self.record_exception(order, error, 'spider')
-                            continue
-
-                        if order.acked:
-                            continue
-
-                        try:
-                            for value in output:
-                                if isinstance(value, LoggerEvent):
-                                    order.collect(value)
-                                    self.emit(value)
-
-                                elif isinstance(value, Request):
-                                    accepted = self.scheduler.enqueue(value)
-                                    if accepted:
-                                        self.stats.enqueued += 1
-                                        order.enqueued += 1
-                                    else:
-                                        self.stats.filtered += 1
-                                        order.filtered += 1
-
-                                elif isinstance(value, Mapping):
-                                    next_future = self.pipeline_executor.submit(
-                                        self.run_pipeline,
-                                        value,
-                                    )
-                                    order.pipelines += 1
-                                    self.pipeline_running[next_future] = order
-
-                                elif isinstance(value, Failure):
-                                    self.record_failure(order, value, 'spider')
-                                    break
-
-                                else:
-                                    raise TypeError(
-                                        'spider output must be a Request, mapping-like item, Failure, or LoggerEvent'
-                                    )
-                        except Exception as error:
-                            self.record_exception(order, error, 'spider')
-                            continue
-
-                        self.check_finished(order)
-
-                    # router: pipeline processed / failed
+                        self._complete_spider(future)
                     elif future in self.pipeline_running:
-
-                        order = self.pipeline_running.pop(future)
-                        order.pipelines -= 1
-
-                        try:
-                            output = future.result()
-                        except Exception as error:
-                            self.record_exception(order, error, 'pipeline')
-                            continue
-
-                        if order.acked:
-                            continue
-
-                        try:
-                            for value in output:
-                                if isinstance(value, LoggerEvent):
-                                    order.collect(value)
-                                    self.emit(value)
-
-                                elif isinstance(value, Mapping):
-                                    order.processed += 1
-                                    self.emit(LoggerEvent('pipeline', payload=value))
-
-                                elif isinstance(value, Failure):
-                                    self.record_failure(order, value, 'pipeline')
-                                    break
-
-                                else:
-                                    raise TypeError(
-                                        'pipeline must return mapping-like item, Failure, or LoggerEvent'
-                                    )
-                        except Exception as error:
-                            self.record_exception(order, error, 'pipeline')
-                            continue
-
-                        self.check_finished(order)
+                        self._complete_pipeline(future)
 
         finally:
-            self.pipeline_executor.shutdown()
-            self.spider_executor.shutdown()
-            self.downloader_executor.shutdown()
+            wait_for_workers = not self.stop_now_requested
+            self.pipeline_executor.shutdown(wait=wait_for_workers, cancel_futures=True)
+            self.spider_executor.shutdown(wait=wait_for_workers, cancel_futures=True)
+            self.downloader_executor.shutdown(wait=wait_for_workers, cancel_futures=True)
+            if self.stop_gracefully_requested or self.stop_now_requested:
+                self._emit_stopped()
 
-    def check_finished(self, order: WorkOrder) -> None:
+    def _complete_downloader(self, future: Future[DownloaderResult]) -> None:
+        order = self.downloader_running.pop(future)
+        order.downloaders -= 1
+
+        try:
+            output = future.result()
+        except KeyboardInterrupt:
+            self._request_stop_gracefully('keyboard interrupt')
+            self._check_finished(order)
+            return
+        except Exception as error:
+            self._record_exception(order, error, 'downloader')
+            return
+
+        if order.acked:
+            return
+
+        try:
+            for value in output:
+                if isinstance(value, EngineEvent):
+                    self._handle_engine_event(order, value)
+                    if self.stop_now_requested:
+                        break
+
+                elif isinstance(value, Request):
+                    next_future = self.downloader_executor.submit(
+                        self.run_downloader,
+                        value,
+                    )
+                    order.downloaders += 1
+                    self.downloader_running[next_future] = order
+
+                elif isinstance(value, Response):
+                    next_future = self.spider_executor.submit(
+                        self.run_spider,
+                        value,
+                    )
+                    order.spiders += 1
+                    self.spider_running[next_future] = order
+
+                elif isinstance(value, Failure):
+                    self._record_failure(order, value, 'downloader')
+                    break
+
+                else:
+                    raise TypeError(
+                        'downloader must return Request, Response, Failure, or EngineEvent'
+                    )
+        except KeyboardInterrupt:
+            self._request_stop_gracefully('keyboard interrupt')
+            self._check_finished(order)
+            return
+        except Exception as error:
+            self._record_exception(order, error, 'downloader')
+            return
+
+        self._check_finished(order)
+
+    def _complete_spider(self, future: Future[SpiderResult]) -> None:
+        order = self.spider_running.pop(future)
+        order.spiders -= 1
+
+        try:
+            output = future.result()
+        except KeyboardInterrupt:
+            self._request_stop_gracefully('keyboard interrupt')
+            self._check_finished(order)
+            return
+        except Exception as error:
+            self._record_exception(order, error, 'spider')
+            return
+
+        if order.acked:
+            return
+
+        try:
+            for value in output:
+                if isinstance(value, EngineEvent):
+                    self._handle_engine_event(order, value)
+                    if self.stop_now_requested:
+                        break
+
+                elif isinstance(value, Request):
+                    accepted = self.scheduler.enqueue(value)
+                    if accepted:
+                        self.stats.enqueued += 1
+                        order.enqueued += 1
+                    else:
+                        self.stats.filtered += 1
+                        order.filtered += 1
+
+                elif isinstance(value, Item):
+                    next_future = self.pipeline_executor.submit(
+                        self.run_pipeline,
+                        value,
+                    )
+                    order.pipelines += 1
+                    self.pipeline_running[next_future] = order
+
+                elif isinstance(value, Failure):
+                    self._record_failure(order, value, 'spider')
+                    break
+
+                else:
+                    raise TypeError(
+                        'spider output must be a Request, Item, Failure, or EngineEvent'
+                    )
+        except KeyboardInterrupt:
+            self._request_stop_gracefully('keyboard interrupt')
+            self._check_finished(order)
+            return
+        except Exception as error:
+            self._record_exception(order, error, 'spider')
+            return
+
+        self._check_finished(order)
+
+    def _complete_pipeline(self, future: Future[PipelineResult]) -> None:
+        order = self.pipeline_running.pop(future)
+        order.pipelines -= 1
+
+        try:
+            output = future.result()
+        except KeyboardInterrupt:
+            self._request_stop_gracefully('keyboard interrupt')
+            self._check_finished(order)
+            return
+        except Exception as error:
+            self._record_exception(order, error, 'pipeline')
+            return
+
+        if order.acked:
+            return
+
+        try:
+            for value in output:
+                if isinstance(value, EngineEvent):
+                    self._handle_engine_event(order, value)
+                    if self.stop_now_requested:
+                        break
+
+                elif isinstance(value, Failure):
+                    self._record_failure(order, value, 'pipeline')
+                    break
+
+                else:
+                    raise TypeError(
+                        'pipeline must return Failure or EngineEvent'
+                    )
+        except KeyboardInterrupt:
+            self._request_stop_gracefully('keyboard interrupt')
+            self._check_finished(order)
+            return
+        except Exception as error:
+            self._record_exception(order, error, 'pipeline')
+            return
+
+        if order.acked:
+            return
+
+        order.processed += 1
+        self._check_finished(order)
+
+    def _check_finished(self, order: WorkOrder) -> None:
         if order.acked or not order.is_idle():
             return
 
@@ -248,26 +316,126 @@ class ExecutionRuntime:
         else:
             self._mark_done(order)
 
-    def record_exception(self, order: WorkOrder, error: Exception, component: str) -> None:
+    def _handle_engine_event(self, order: WorkOrder, event: EngineEvent) -> None:
+        if event.action == EngineAction.COLLECT:
+            order.collect(event.payload)
+        elif event.action == EngineAction.STOP_GRACEFULLY:
+            self._request_stop_gracefully(event.payload.get('reason', 'stop requested'))
+        elif event.action == EngineAction.STOP_NOW:
+            self._request_stop_now(order, event.payload)
+        elif event.action != EngineAction.NONE:
+            raise ValueError(f'unknown engine action: {event.action!r}')
+
+        if event.log is not None:
+            self.emit(event.log)
+
+    def _request_stop_gracefully(self, reason: object) -> None:
+        if self.stop_gracefully_requested or self.stop_now_requested:
+            return
+        self.stop_gracefully_requested = True
+        self.stop_mode = 'gracefully'
+        self.emit(LogRecord(
+            source='engine',
+            action=LoggerAction.STOPPING,
+            payload={
+                'mode': self.stop_mode,
+                'reason': reason,
+            },
+            level=logging.WARNING,
+        ))
+
+    def _request_stop_now(
+        self,
+        current_order: WorkOrder,
+        payload: Mapping[str, object],
+    ) -> None:
+        if not self.stop_now_requested:
+            self.emit(LogRecord(
+                source='engine',
+                action=LoggerAction.STOPPING,
+                payload={
+                    'mode': 'now',
+                    'reason': payload.get('reason', 'stop requested'),
+                },
+                level=logging.WARNING,
+            ))
+        self.stop_now_requested = True
+        self.stop_gracefully_requested = True
+        self.stop_mode = 'now'
+        self._fail_order(current_order, payload)
+
+        reason = payload.get('reason', 'stop requested')
+        if isinstance(reason, Exception):
+            error = reason
+        else:
+            error = RuntimeError(str(reason))
+
+        orders: dict[int, WorkOrder] = {}
+        for order in (
+                *self.downloader_running.values(),
+                *self.spider_running.values(),
+                *self.pipeline_running.values(),
+        ):
+            orders[id(order)] = order
+
+        for future in (
+                *self.downloader_running,
+                *self.spider_running,
+                *self.pipeline_running,
+        ):
+            future.cancel()
+
+        self.downloader_running.clear()
+        self.spider_running.clear()
+        self.pipeline_running.clear()
+
+        for order in orders.values():
+            self._fail_order(order, {'reason': error})
+
+    def _emit_stopped(self) -> None:
+        self.emit(LogRecord(
+            source='engine',
+            action=LoggerAction.STOPPED,
+            payload={
+                'mode': self.stop_mode,
+                'summary': self.summary(),
+            },
+        ))
+
+    def _fail_order(
+        self,
+        order: WorkOrder,
+        payload: Mapping[str, object],
+    ) -> None:
+        if order.acked:
+            return
+        reason = payload.get('reason', 'stop requested')
+        if isinstance(reason, Exception):
+            order.error = reason
+        else:
+            order.error = RuntimeError(str(reason))
+        self._mark_failed(order)
+
+    def _record_exception(self, order: WorkOrder, error: Exception, component: str) -> None:
         if order.acked:
             return
 
         order.error = error
-        event = LoggerEvent(
-            'engine',
+        payload = {
+            'component': component,
+            'request': order.request,
+            'error': error,
+        }
+        order.collect(payload)
+        self.emit(LogRecord(
+            source='engine',
             action=LoggerAction.FAILED,
-            payload={
-                'component': component,
-                'request': order.request,
-                'error': error,
-            },
+            payload=payload,
             level=logging.ERROR,
-        )
-        order.collect(event)
-        self.emit(event)
-        self.check_finished(order)
+        ))
+        self._check_finished(order)
 
-    def record_failure(
+    def _record_failure(
         self,
         order: WorkOrder,
         failure: Failure,
@@ -277,19 +445,19 @@ class ExecutionRuntime:
             return
 
         order.error = failure.exception
-        event = LoggerEvent(
-            'engine',
+        payload = {
+            'component': component,
+            'request': order.request,
+            'failure': failure,
+        }
+        order.collect(payload)
+        self.emit(LogRecord(
+            source='engine',
             action=LoggerAction.FAILED,
-            payload={
-                'component': component,
-                'request': order.request,
-                'failure': failure,
-            },
+            payload=payload,
             level=logging.ERROR,
-        )
-        order.collect(event)
-        self.emit(event)
-        self.check_finished(order)
+        ))
+        self._check_finished(order)
 
     def _mark_done(self, order: WorkOrder) -> None:
         order.acked = True
@@ -304,13 +472,13 @@ class ExecutionRuntime:
         self._emit_done(order)
 
     def _emit_done(self, order: WorkOrder) -> None:
-        self.emit(LoggerEvent(
-            'engine',
+        self.emit(LogRecord(
+            source='engine',
             action=LoggerAction.DONE,
             payload={'order': order},
         ))
-        self.emit(LoggerEvent(
-            'engine',
+        self.emit(LogRecord(
+            source='engine',
             action=LoggerAction.SUMMARY,
             payload=self.summary(),
         ))
