@@ -4,7 +4,7 @@ from .model import EngineAction, EngineEvent, Failure, Item, Request, Response
 from .registry import ComponentSpec
 from .spider import Spider
 
-__version__ = '0.2.0'
+__version__ = '0.3.0'
 
 __all__ = [
     'Engine',
