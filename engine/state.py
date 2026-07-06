@@ -36,7 +36,11 @@ class WorkOrder:
     acked: bool = False  # finally acknowledged
 
     def collect(self, payload: Mapping[str, object]) -> None:
-        self.payload.update(payload)
+        for key, value in payload.items():
+            if isinstance(value, int) and not isinstance(value, bool):
+                self.count(key, value)
+            else:
+                self.payload[key] = value
 
     def count(self, key: str, amount: int = 1) -> None:
         self.payload[key] = int(self.payload.get(key, 0)) + amount
