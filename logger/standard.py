@@ -53,9 +53,8 @@ class StandardLogger(Logger):
         if not (0 < self.summary_every <= stats.done - self._last_summary.done):
             return
         self.logger.info(
-            '''
-            [%s] %s: enqueued=%s(+%s) filtered=%s(+%s) done=%s(+%s) failed=%s(+%s) pending=%s leased=%s
-            ''',
+            '[%s] %s: enqueued=%s(+%s) filtered=%s(+%s) '
+            'done=%s(+%s) failed=%s(+%s) pending=%s leased=%s',
             event.action.value.upper(),
             event.source,
             stats.enqueued,
