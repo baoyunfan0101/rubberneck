@@ -62,7 +62,7 @@ class SessionPoolDownloader:
                     body=response.content,
                     headers=dict(response.headers),
                     request=request,
-                    cookies=tuple(response.cookies),
+                    cookies=tuple(session.cookies),
                 )]
             finally:
                 response.close()
